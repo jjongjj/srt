@@ -110,6 +110,28 @@ class Subtitle:
         return s
 
 
+# ─── 프랑스어 감지 ────────────────────────────────────────────
+_FRENCH_CHARS = re.compile(r'[éèêëàâäùûüîïôöœæçÉÈÊËÀÂÄÙÛÜÎÏÔÖŒÆÇ]')
+_FRENCH_WORDS = re.compile(
+    r'\b(vous|etes|mais|mes|les|des|du|je|tu|il|nous|ils|elle|elles|'
+    r'pour|que|qui|quoi|pardonnez|encore|liberales|dames|donc|'
+    r'mignonnes|contraire|maitre|fiche|annees|amour|honnete|'
+    r'avant|faudra|comptons|ensemble|nostri|satanas)\b',
+    re.IGNORECASE
+)
+
+def is_french_text(text: str) -> bool:
+    """텍스트가 프랑스어인지 감지. 장면 지문([...])은 제외."""
+    clean = re.sub(r'\[.*?\]', '', text).strip()
+    if not clean:
+        return False
+    # 프랑스어 악센트 문자 포함 여부
+    if _FRENCH_CHARS.search(clean):
+        return True
+    # 악센트 없는 프랑스어 단어 2개 이상 매칭
+    return len(_FRENCH_WORDS.findall(clean)) >= 2
+
+
 # ─── SRT 파싱/저장 ────────────────────────────────────────────
 def ts_to_ms(ts: str) -> int:
     ts = ts.strip().replace(",", ".")
@@ -147,20 +169,28 @@ def parse_srt(path: str) -> list:
     return subtitles
 
 
-def save_srt(subtitles: list, out_path: str, bilingual: bool = False):
+def save_srt(subtitles: list, out_path: str, bilingual: bool = False,
+             french_bilingual: bool = False):
     out = []
     for i, s in enumerate(subtitles, 1):
         out.append(str(i))
         out.append(f"{ms_to_ts(s.start_ms)} --> {ms_to_ts(s.end_ms)}")
-        out.append(s.translated.replace(" / ", "\n"))
-        if bilingual and s.lines:
-            out.append(" ".join(s.lines))
+        orig = " ".join(s.lines) if s.lines else ""
+        if french_bilingual and s.lines and is_french_text(orig):
+            # 프랑스어 줄: 원문 위에, 한국어 아래
+            out.append(orig)
+            out.append(s.translated.replace(" / ", "\n"))
+        else:
+            out.append(s.translated.replace(" / ", "\n"))
+            if bilingual and s.lines:
+                out.append(orig)
         out.append("")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
 
 
-def save_smi(subtitles: list, out_path: str, title: str = "", bilingual: bool = False):
+def save_smi(subtitles: list, out_path: str, title: str = "", bilingual: bool = False,
+             french_bilingual: bool = False):
     header = f"""<SAMI>
 <HEAD>
 <TITLE>{title}</TITLE>
@@ -176,9 +206,12 @@ P {{ margin-left:8pt; margin-right:8pt; margin-bottom:2pt; margin-top:2pt;
     parts = []
     for s in subtitles:
         html = s.translated.replace(" / ", "<br>")
-        if bilingual and s.lines:
-            eng = " ".join(s.lines)
-            html += f"<br><i>{eng}</i>"
+        orig = " ".join(s.lines) if s.lines else ""
+        if french_bilingual and s.lines and is_french_text(orig):
+            # 프랑스어 줄: 원문 위에, 한국어 아래
+            html = f"<i>{orig}</i><br>" + html
+        elif bilingual and s.lines:
+            html += f"<br><i>{orig}</i>"
         parts.append(
             f'<SYNC start="{s.start_ms}"><P class="KRCC">{html}</P></SYNC>\n'
             f'<SYNC start="{s.end_ms}"><P class="KRCC">&nbsp;</P></SYNC>'
@@ -402,6 +435,45 @@ def load_recent_story(story_file: str, max_episodes: int = 3) -> str:
     return "## 이전 화 스토리 요약\n" + "\n\n".join(recent)
 
 
+# ─── 재저장 (API 호출 없이) ───────────────────────────────────
+def resave_with_original(srt_path: str, bilingual: bool = False,
+                         french_bilingual: bool = False):
+    """원본 .srt + 기존 .ko.srt를 합쳐 새 형식으로 재저장.
+    이미 번역 완료된 파일을 API 비용 없이 french_bilingual 모드로 변환.
+    """
+    base = os.path.splitext(srt_path)[0]
+    ko_path = base + ".ko.srt"
+    if not os.path.exists(ko_path):
+        print(f"  ✗ .ko.srt 없음: {ko_path}")
+        return False
+
+    orig_subs = parse_srt(srt_path)
+    ko_subs   = parse_srt(ko_path)
+
+    if len(orig_subs) != len(ko_subs):
+        print(f"  ⚠ 자막 수 불일치 (원본: {len(orig_subs)}, 번역: {len(ko_subs)}) — 인덱스 매칭 시도")
+
+    # 인덱스 기준 매칭: 원본 lines + 번역 translated 합치기
+    merged = []
+    for o in orig_subs:
+        # 동일 index인 번역 자막 찾기
+        tr_sub = next((k for k in ko_subs if k.index == o.index), None)
+        if tr_sub:
+            o.translated = " ".join(tr_sub.lines)  # ko.srt의 텍스트를 translated로
+        else:
+            o.translated = " ".join(o.lines)  # 번역 없으면 원문 유지
+        merged.append(o)
+
+    out_srt = base + ".ko.srt"
+    out_smi = base + ".ko.smi"
+    save_srt(merged, out_srt, bilingual=bilingual, french_bilingual=french_bilingual)
+    save_smi(merged, out_smi, title=os.path.basename(base),
+             bilingual=bilingual, french_bilingual=french_bilingual)
+    print(f"  → {out_srt}")
+    print(f"  → {out_smi}")
+    return True
+
+
 # ─── 번역 ────────────────────────────────────────────────────
 def translate_batch(client, items: list, context: str = "") -> tuple:
     """items: [(batch_idx, lines_list), ...]
@@ -518,7 +590,8 @@ def translate_all(client, subtitles, srt_path, context="",
 
 
 # ─── 파일 처리 ───────────────────────────────────────────────
-def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = False):
+def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = False,
+                 french_bilingual: bool = False, resave: bool = False):
     base = os.path.splitext(srt_path)[0]
     out_srt = base + ".ko.srt"
     out_smi = base + ".ko.smi"
@@ -527,6 +600,15 @@ def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = F
     print(f"\n{'='*60}")
     print(f"파일: {os.path.basename(srt_path)}")
     print(f"{'='*60}")
+
+    # --resave: API 없이 기존 번역 재저장
+    if resave:
+        print("⟳  재저장 모드 (API 호출 없음)", flush=True)
+        ok = resave_with_original(srt_path, bilingual=bilingual,
+                                  french_bilingual=french_bilingual)
+        if ok:
+            print("완료!")
+        return
 
     # 이미 완료된 경우 스킵
     if not reset and os.path.exists(out_srt) and os.path.getsize(out_srt) > 1000:
@@ -559,8 +641,9 @@ def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = F
     translate_all(client, subtitles, srt_path, context=context, start_from=start_from)
 
     print("\n저장 중...", flush=True)
-    save_srt(subtitles, out_srt, bilingual=bilingual)
-    save_smi(subtitles, out_smi, title=os.path.basename(base), bilingual=bilingual)
+    save_srt(subtitles, out_srt, bilingual=bilingual, french_bilingual=french_bilingual)
+    save_smi(subtitles, out_smi, title=os.path.basename(base),
+             bilingual=bilingual, french_bilingual=french_bilingual)
     clear_progress(srt_path)  # 완료 후 진행 파일 삭제
     print(f"  → {out_srt}")
     print(f"  → {out_smi}")
@@ -587,6 +670,10 @@ API 키 설정:
     parser.add_argument("--all", metavar="DIR", help="폴더 내 모든 SRT 파일 처리 (순서대로)")
     parser.add_argument("--reset", action="store_true", help="저장된 진행 상황 무시하고 처음부터")
     parser.add_argument("--api-key", help="Anthropic API 키 (없으면 .env 또는 환경변수 사용)")
+    parser.add_argument("--french-bilingual", action="store_true",
+                        help="프랑스어 대사 줄에만 원문+한국어 이중 표기")
+    parser.add_argument("--resave", action="store_true",
+                        help="기존 .ko.srt 재저장 (API 호출 없음). --french-bilingual과 함께 사용")
     args = parser.parse_args()
 
     api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -609,14 +696,18 @@ API 키 설정:
             sys.exit(1)
         print(f"발견된 SRT 파일: {len(files)}개")
         for f in files:
-            process_file(client, f, reset=args.reset)
+            process_file(client, f, reset=args.reset,
+                         french_bilingual=args.french_bilingual,
+                         resave=args.resave)
         print("\n\n전체 번역 완료!")
 
     elif args.srt_file:
         if not os.path.exists(args.srt_file):
             print(f"파일 없음: {args.srt_file}")
             sys.exit(1)
-        process_file(client, args.srt_file, reset=args.reset)
+        process_file(client, args.srt_file, reset=args.reset,
+                     french_bilingual=args.french_bilingual,
+                     resave=args.resave)
 
     else:
         parser.print_help()
