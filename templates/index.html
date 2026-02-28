@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SRT 자막 번역기</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+  .drop-zone-active { border-color: #6366f1 !important; background-color: #eef2ff !important; }
+  textarea { font-family: 'Menlo', 'Monaco', 'Courier New', monospace; }
+  .tab-active { border-bottom: 2px solid #6366f1; color: #6366f1; font-weight: 600; }
+  .file-bar { transition: width 0.4s ease; }
+  .spinner { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div class="max-w-3xl mx-auto px-4 py-10">
+  <!-- 헤더 -->
+  <div class="mb-8 flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800">🎬 SRT 자막 번역기</h1>
+      <p class="text-gray-500 text-sm mt-1">뱀파이어와의 인터뷰 · Claude Sonnet 4.6 · 한국어</p>
+    </div>
+    <!-- 비용 게이지 -->
+    <div id="cost-badge" class="hidden items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-full px-3 py-1">
+      <span class="text-gray-400 text-xs">💰</span>
+      <span id="cost-value" class="text-xs font-mono font-medium text-gray-600">$0.0000</span>
+    </div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="flex gap-6 border-b border-gray-200 mb-6">
+    <button id="tab-translate" onclick="switchTab('translate')" class="pb-2 text-sm tab-active">번역</button>
+    <button id="tab-settings" onclick="switchTab('settings')" class="pb-2 text-sm text-gray-500">설정 / 프롬프트</button>
+  </div>
+
+  <!-- ─── 번역 탭 ─── -->
+  <div id="panel-translate">
+    <!-- 드래그&드롭 존 -->
+    <div id="drop-zone"
+         class="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer bg-white hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+         onclick="document.getElementById('file-input').click()"
+         ondragover="handleDragOver(event)"
+         ondragleave="handleDragLeave(event)"
+         ondrop="handleDrop(event)">
+      <div class="text-4xl mb-3">📂</div>
+      <p class="text-gray-600 font-medium">SRT 파일을 드래그하거나 클릭해서 선택</p>
+      <p class="text-gray-400 text-xs mt-1">여러 파일을 한꺼번에 추가할 수 있습니다 — 순서대로 자동 처리</p>
+      <input id="file-input" type="file" accept=".srt" multiple class="hidden" onchange="handleFileSelect(event)">
+    </div>
+
+    <!-- 옵션 -->
+    <div class="flex gap-6 mt-4 text-sm text-gray-600">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input id="opt-context" type="checkbox" checked class="rounded accent-indigo-500">
+        이전화 컨텍스트 사용
+      </label>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input id="opt-reset" type="checkbox" class="rounded accent-indigo-500">
+        처음부터 다시 번역
+      </label>
+    </div>
+
+    <!-- 파일 큐 목록 -->
+    <div id="file-queue" class="mt-5 space-y-2"></div>
+  </div>
+
+  <!-- ─── 설정 탭 ─── -->
+  <div id="panel-settings" class="hidden">
+    <div class="space-y-5">
+
+      <!-- 모델 & 배치크기 -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">모델</label>
+          <select id="cfg-model" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-opus-4-6">claude-opus-4-6</option>
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">배치 크기</label>
+          <input id="cfg-batch" type="number" min="5" max="50"
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+        </div>
+      </div>
+
+      <!-- 시스템 프롬프트 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">시스템 프롬프트</label>
+        <textarea id="cfg-prompt" rows="10"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-y"></textarea>
+      </div>
+
+      <!-- 캐릭터별 말투 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">캐릭터별 말투</label>
+        <div class="space-y-2" id="character-list"></div>
+      </div>
+
+      <!-- API 키 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">API 키 (변경 시만 입력)</label>
+        <input id="cfg-apikey" type="password" placeholder="sk-ant-..."
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono">
+        <p class="text-xs text-gray-400 mt-1">비워두면 .env 파일의 키를 그대로 사용</p>
+      </div>
+
+      <!-- 저장 버튼 -->
+      <div class="flex gap-3">
+        <button onclick="saveSettings()"
+                class="px-6 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+          설정 저장
+        </button>
+        <span id="save-msg" class="text-sm text-green-600 self-center hidden">저장됨 ✓</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── 상태 ────────────────────────────────────────────────────
+let fileQueue = [];   // [{file, id, status, jobId, es}]
+let isProcessing = false;
+let totalCostUsd = 0;
+let queueIdCounter = 0;
+
+// ─── 탭 전환 ─────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('panel-translate').classList.toggle('hidden', tab !== 'translate');
+  document.getElementById('panel-settings').classList.toggle('hidden', tab !== 'settings');
+  document.getElementById('tab-translate').className = 'pb-2 text-sm ' + (tab === 'translate' ? 'tab-active' : 'text-gray-500');
+  document.getElementById('tab-settings').className  = 'pb-2 text-sm ' + (tab === 'settings'  ? 'tab-active' : 'text-gray-500');
+  if (tab === 'settings') loadSettings();
+}
+
+// ─── 드래그&드롭 ──────────────────────────────────────────────
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drop-zone-active');
+}
+function handleDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('drop-zone-active');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drop-zone-active');
+  const files = [...e.dataTransfer.files].filter(f => f.name.endsWith('.srt'));
+  if (files.length) addFiles(files);
+}
+function handleFileSelect(e) {
+  const files = [...e.target.files].filter(f => f.name.endsWith('.srt'));
+  if (files.length) addFiles(files);
+  e.target.value = '';
+}
+
+// ─── 파일 큐 추가 ─────────────────────────────────────────────
+function addFiles(files) {
+  for (const file of files) {
+    const item = { file, id: ++queueIdCounter, status: 'pending', jobId: null, es: null };
+    fileQueue.push(item);
+    renderItem(item);
+  }
+  if (!isProcessing) processNext();
+}
+
+// ─── 파일 행 렌더링 ───────────────────────────────────────────
+function renderItem(item) {
+  const container = document.getElementById('file-queue');
+  const div = document.createElement('div');
+  div.id = 'item-' + item.id;
+  div.className = 'bg-white border border-gray-100 rounded-xl p-4 shadow-sm';
+  div.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <svg class="spinner-${item.id} hidden w-3.5 h-3.5 text-indigo-500 shrink-0 spinner" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        <span class="text-sm font-medium text-gray-700 truncate">${item.file.name}</span>
+      </div>
+      <span id="badge-${item.id}" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 shrink-0">대기 중</span>
+    </div>
+    <div id="bar-wrap-${item.id}" class="hidden">
+      <div class="w-full bg-gray-100 rounded-full h-1.5">
+        <div id="bar-${item.id}" class="file-bar bg-indigo-500 h-1.5 rounded-full" style="width:0%"></div>
+      </div>
+      <div class="flex justify-between mt-1">
+        <span id="detail-${item.id}" class="text-xs text-gray-400"></span>
+        <span id="pct-${item.id}" class="text-xs text-indigo-500 font-mono">0%</span>
+      </div>
+    </div>
+    <div id="dl-${item.id}" class="hidden flex gap-2 mt-2">
+      <a id="dl-srt-${item.id}" href="#" class="flex-1 py-1.5 rounded-lg bg-green-50 border border-green-200 text-center text-xs font-medium text-gray-700 hover:bg-green-100 transition-colors">📥 .ko.srt</a>
+      <a id="dl-smi-${item.id}" href="#" class="flex-1 py-1.5 rounded-lg bg-green-50 border border-green-200 text-center text-xs font-medium text-gray-700 hover:bg-green-100 transition-colors">📥 .ko.smi</a>
+    </div>
+    <div id="err-${item.id}" class="hidden mt-2 text-xs text-red-500"></div>
+  `;
+  container.appendChild(div);
+}
+
+function setBadge(id, text, colorClass) {
+  const el = document.getElementById('badge-' + id);
+  el.textContent = text;
+  el.className = `text-xs px-2 py-0.5 rounded-full shrink-0 ${colorClass}`;
+}
+
+// ─── 순차 처리 ────────────────────────────────────────────────
+async function processNext() {
+  const item = fileQueue.find(i => i.status === 'pending');
+  if (!item) { isProcessing = false; return; }
+
+  isProcessing = true;
+  item.status = 'running';
+
+  // 스피너 + 뱃지
+  document.querySelector(`.spinner-${item.id}`).classList.remove('hidden');
+  setBadge(item.id, '번역 중', 'bg-indigo-100 text-indigo-600');
+  document.getElementById(`bar-wrap-${item.id}`).classList.remove('hidden');
+
+  const useContext = document.getElementById('opt-context').checked;
+  const reset = document.getElementById('opt-reset').checked;
+
+  const formData = new FormData();
+  formData.append('file', item.file);
+  formData.append('use_context', useContext);
+  formData.append('reset', reset);
+
+  try {
+    const res = await fetch('/translate', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '서버 오류');
+
+    item.jobId = data.job_id;
+    listenProgress(item);
+  } catch (err) {
+    markError(item, err.message);
+    processNext();
+  }
+}
+
+// ─── SSE 진행률 ───────────────────────────────────────────────
+function listenProgress(item) {
+  if (item.es) item.es.close();
+  const es = new EventSource('/progress/' + item.jobId);
+  item.es = es;
+
+  es.addEventListener('progress', (e) => {
+    const d = JSON.parse(e.data);
+    document.getElementById(`bar-${item.id}`).style.width = d.pct + '%';
+    document.getElementById(`pct-${item.id}`).textContent = Math.round(d.pct) + '%';
+    document.getElementById(`detail-${item.id}`).textContent = `${d.done}/${d.total}`;
+
+    // 비용 갱신
+    if (d.cost_usd !== undefined) updateCost(d.cost_usd, item);
+  });
+
+  es.addEventListener('done', () => {
+    es.close();
+    item.status = 'done';
+    document.querySelector(`.spinner-${item.id}`).classList.add('hidden');
+    document.getElementById(`bar-${item.id}`).style.width = '100%';
+    document.getElementById(`pct-${item.id}`).textContent = '100%';
+    document.getElementById(`detail-${item.id}`).textContent = '완료';
+    setBadge(item.id, '완료 ✅', 'bg-green-100 text-green-600');
+
+    const dl = document.getElementById(`dl-${item.id}`);
+    dl.classList.remove('hidden');
+    dl.classList.add('flex');
+    document.getElementById(`dl-srt-${item.id}`).href = '/download/' + item.jobId + '/srt';
+    document.getElementById(`dl-smi-${item.id}`).href = '/download/' + item.jobId + '/smi';
+
+    processNext();
+  });
+
+  es.addEventListener('error_msg', (e) => {
+    es.close();
+    const d = JSON.parse(e.data);
+    markError(item, d.message);
+    processNext();
+  });
+
+  es.onerror = () => {
+    if (es.readyState === EventSource.CLOSED) return;
+    es.close();
+    markError(item, '연결 끊김 — 번역은 백그라운드에서 계속됩니다.');
+    processNext();
+  };
+}
+
+function markError(item, msg) {
+  item.status = 'error';
+  document.querySelector(`.spinner-${item.id}`).classList.add('hidden');
+  setBadge(item.id, '오류 ❌', 'bg-red-100 text-red-600');
+  const errEl = document.getElementById(`err-${item.id}`);
+  errEl.textContent = msg;
+  errEl.classList.remove('hidden');
+}
+
+// ─── 비용 표시 ────────────────────────────────────────────────
+// 각 아이템의 마지막 알려진 비용을 추적
+const itemCosts = {};
+
+function updateCost(itemCostUsd, item) {
+  itemCosts[item.id] = itemCostUsd;
+  totalCostUsd = Object.values(itemCosts).reduce((a, b) => a + b, 0);
+  const badge = document.getElementById('cost-badge');
+  badge.classList.remove('hidden');
+  badge.classList.add('flex');
+  document.getElementById('cost-value').textContent = '$' + totalCostUsd.toFixed(4);
+}
+
+// ─── 설정 로드/저장 ───────────────────────────────────────────
+async function loadSettings() {
+  const res = await fetch('/settings');
+  const cfg = await res.json();
+
+  document.getElementById('cfg-model').value = cfg.model || 'claude-sonnet-4-6';
+  document.getElementById('cfg-batch').value = cfg.batch_size || 20;
+  document.getElementById('cfg-prompt').value = cfg.system_prompt || '';
+
+  const container = document.getElementById('character-list');
+  container.innerHTML = '';
+  for (const [name, note] of Object.entries(cfg.character_notes || {})) {
+    container.innerHTML += `
+      <div class="flex gap-2 items-start">
+        <span class="w-20 text-xs text-gray-500 pt-2 shrink-0">${name}</span>
+        <textarea data-char="${name}" rows="2"
+          class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-y">${note}</textarea>
+      </div>`;
+  }
+}
+
+async function saveSettings() {
+  const characters = {};
+  document.querySelectorAll('[data-char]').forEach(el => {
+    characters[el.dataset.char] = el.value;
+  });
+
+  const payload = {
+    model: document.getElementById('cfg-model').value,
+    batch_size: parseInt(document.getElementById('cfg-batch').value),
+    system_prompt: document.getElementById('cfg-prompt').value,
+    character_notes: characters,
+    api_key: document.getElementById('cfg-apikey').value || null,
+  };
+
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (res.ok) {
+    const msg = document.getElementById('save-msg');
+    msg.classList.remove('hidden');
+    setTimeout(() => msg.classList.add('hidden'), 2000);
+  }
+}
+</script>
+</body>
+</html>

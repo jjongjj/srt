@@ -1,0 +1,23 @@
+# API 키 / 환경변수
+.env
+
+# 자막 파일 (저작권 · 개인 결과물 — 로컬에만 보관)
+*.srt
+*.smi
+
+# 번역 진행 상황 체크포인트
+*.progress.json
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+
+# 로그
+*.log
+
+# Claude 로컬 설정
+.claude/
+
+# 기타
+docs/
+.DS_Store
