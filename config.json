@@ -1,11 +1,24 @@
 {
   "model": "claude-sonnet-4-6",
   "batch_size": 20,
-  "system_prompt": "당신은 \"뱀파이어와의 인터뷰\" (Interview with the Vampire, AMC 시리즈) 전문 한국어 자막 번역가입니다.\n\n## 드라마 정보\n뉴올리언스 배경의 고딕 뱀파이어 드라마. 루이가 기자 다니엘에게 자신의 과거를 회상하는 액자 구성.\n\n## 번역 규칙\n1. **욕설/비속어** — 절대 순화하지 말 것. 데드풀 번역가 스타일로 직설적으로.\n   - fuck → 씨발 (감탄사) / 씹어먹을 (수식어)\n   - shit → 개소리 / 젠장 / 씨발\n   - goddamn → 빌어먹을 / 개같은\n   - asshole/bastard → 개새끼\n   - bitch → 개년 / 씨발년 (여성) / 개새끼 (남성)\n2. **나레이션/독백** — 1인칭 회상체, 문학적 한국어. \"~했다\" \"~이었다\" 종결어미.\n3. **일반 대화** — 캐릭터 성격에 맞는 구어체. 자연스럽고 살아있는 말투.\n4. **직역 금지** — 의미와 뉘앙스를 살려 자유롭게.\n5. **용어 일관성** — 아래 제공된 기번역 용어집을 반드시 따를 것.",
-  "character_notes": {
-    "Louis": "우울하고 시적인 나레이터. 회상체 독백 많음. 문학적이고 서정적. 격식체+구어체 혼합.",
-    "Lestat": "과장되고 화려하며 지배적. 연극적이고 위압적이지만 매력적.",
-    "Daniel": "냉소적인 현대 기자. 짧고 건조하며 직설적. 감정 절제.",
-    "Claudia": "초반 어린이 말투 → 점차 날카롭고 반항적."
+  "current_profile": "interview-vampire",
+  "profiles": {
+    "interview-vampire": {
+      "name": "뱀파이어와의 인터뷰",
+      "system_prompt": "당신은 \"뱀파이어와의 인터뷰\" (Interview with the Vampire, AMC 시리즈) 전문 한국어 자막 번역가입니다.\n\n## 드라마 정보\n뉴올리언스 배경의 고딕 뱀파이어 드라마. 루이가 기자 다니엘에게 자신의 과거를 회상하는 액자 구성.\n\n## 번역 규칙\n1. **욕설/비속어** — 절대 순화하지 말 것. 데드풀 번역가 스타일로 직설적으로.\n   - fuck → 씨발 (감탄사) / 씹어먹을 (수식어)\n   - shit → 개소리 / 젠장 / 씨발\n   - goddamn → 빌어먹을 / 개같은\n   - asshole/bastard → 개새끼\n   - bitch → 개년 / 씨발년 (여성) / 개새끼 (남성)\n2. **나레이션/독백** — 1인칭 회상체, 문학적 한국어. \"~했다\" \"~이었다\" 종결어미.\n3. **일반 대화** — 캐릭터 성격에 맞는 구어체. 자연스럽고 살아있는 말투.\n4. **직역 금지** — 의미와 뉘앙스를 살려 자유롭게.\n5. **용어 일관성** — 아래 제공된 기번역 용어집을 반드시 따를 것.",
+      "character_notes": {
+        "Claudia": "초반 어린이 말투 → 점차 날카롭고 반항적.",
+        "Daniel": "냉소적인 현대 기자. 짧고 건조하며 직설적. 감정 절제.",
+        "Lestat": "과장되고 화려하며 지배적. 연극적이고 위압적이지만 매력적.",
+        "Louis": "우울하고 시적인 나레이터. 회상체 독백 많음. 문학적이고 서정적. 격식체+구어체 혼합."
+      },
+      "context_folders": [
+        "/Users/hyojongchu/Documents/srt/뱀파이어 인터뷰 시즌 1",
+        "/Users/hyojongchu/Documents/srt/뱀파이어 인터뷰 시즌 2"
+      ],
+      "output_folder": null,
+      "glossary_file": "/Users/hyojongchu/Documents/srt/interview-vampire-glossary.json",
+      "story_file": "/Users/hyojongchu/Documents/srt/interview-vampire-story.md"
+    }
   }
 }

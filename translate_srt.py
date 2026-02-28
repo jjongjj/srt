@@ -47,15 +47,44 @@ def load_config() -> dict:
     return {"model": "claude-sonnet-4-6", "batch_size": 20,
             "system_prompt": "", "character_notes": {}}
 
-def _build_system_prompt(cfg: dict) -> str:
-    prompt = cfg.get("system_prompt", "")
-    notes = cfg.get("character_notes", {})
+
+def get_current_profile(cfg: dict) -> dict:
+    """현재 활성 프로필 반환. 구 포맷(profiles 없음) 하위 호환."""
+    profiles = cfg.get("profiles")
+    if not profiles:
+        # 기존 포맷 — 최상위 필드를 그대로 반환
+        return {
+            "name": "기본",
+            "system_prompt": cfg.get("system_prompt", ""),
+            "character_notes": cfg.get("character_notes", {}),
+            "context_folders": [],
+            "output_folder": None,
+            "glossary_file": None,
+            "story_file": None,
+        }
+    cur_id = cfg.get("current_profile", next(iter(profiles)))
+    p = profiles.get(cur_id, next(iter(profiles.values())))
+    # 누락 필드 기본값 채우기
+    p.setdefault("context_folders", [])
+    p.setdefault("output_folder", None)
+    p.setdefault("glossary_file", None)
+    p.setdefault("story_file", None)
+    return p
+
+
+def _build_system_prompt(cfg: dict, glossary_text: str = "") -> str:
+    profile = get_current_profile(cfg)
+    prompt = profile.get("system_prompt", "")
+    notes = profile.get("character_notes", {})
     if notes:
         char_section = "\n\n## 캐릭터별 말투\n" + "\n".join(
             f"- **{name}**: {note}" for name, note in notes.items()
         )
         prompt += char_section
+    if glossary_text:
+        prompt += "\n\n" + glossary_text
     return prompt
+
 
 _cfg = load_config()
 MODEL      = _cfg.get("model", "claude-sonnet-4-6")
@@ -184,22 +213,34 @@ def clear_progress(srt_path: str):
 
 
 # ─── 이전화 컨텍스트 추출 ─────────────────────────────────────
-def build_context_from_previous(folder: str, current_file: str) -> str:
-    """이미 번역된 *.ko.srt 파일에서 용어/말투 컨텍스트 추출"""
-    ko_files = sorted(glob(os.path.join(folder, "*.ko.srt")))
+def build_context_from_previous(folders, current_file: str) -> str:
+    """이미 번역된 *.ko.srt 파일에서 용어/말투 컨텍스트 추출.
+
+    folders: str 또는 list[str] — 스캔할 폴더(들).
+             시즌 폴더 여러 개를 넘기면 크로스-시즌 연속성 지원.
+    """
+    if isinstance(folders, str):
+        folders = [folders]
+
+    # 모든 폴더에서 ko.srt 수집 후 파일명 기준 정렬 (시즌1→시즌2 순서)
+    all_ko = []
+    for folder in folders:
+        if folder and os.path.isdir(folder):
+            all_ko.extend(glob(os.path.join(folder, "*.ko.srt")))
+    all_ko = sorted(set(all_ko), key=lambda p: os.path.basename(p))
+
     # 현재 파일의 ko.srt는 제외
     base = os.path.splitext(current_file)[0]
-    ko_files = [f for f in ko_files if not f.startswith(base)]
+    ko_files = [f for f in all_ko if not os.path.abspath(f).startswith(os.path.abspath(base))]
 
     if not ko_files:
         return ""
 
-    # 최근 2개 화 기준으로 샘플 추출 (너무 길면 토큰 낭비)
+    # 최근 2개 화 기준으로 샘플 추출 (토큰 효율)
     selected = ko_files[-2:]
     samples = []
     for kf in selected:
         subs = parse_srt(kf)
-        # 앞 20개 + 중간 20개 샘플링
         mid = len(subs) // 2
         sampled = subs[:20] + subs[mid:mid+20]
         for s in sampled:
@@ -218,6 +259,142 @@ def build_context_from_previous(folder: str, current_file: str) -> str:
 {chr(10).join(samples[:80])}
 """
     return context
+
+
+def load_glossary(glossary_file: str) -> dict:
+    """용어집 파일 로드. 없으면 빈 딕트 반환."""
+    if glossary_file and os.path.exists(glossary_file):
+        with open(glossary_file, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("terms", {})
+    return {}
+
+
+def glossary_to_prompt_section(terms: dict) -> str:
+    """용어집 딕트를 시스템 프롬프트용 텍스트로 변환."""
+    if not terms:
+        return ""
+    lines = [f"- {en} → {ko}" for en, ko in sorted(terms.items())]
+    return "## 확정 용어집 (반드시 아래 번역을 사용할 것)\n" + "\n".join(lines)
+
+
+def extract_and_update_glossary(client, subtitles: list, glossary_file: str):
+    """번역된 자막에서 고유명사/특수 용어를 추출해 용어집 파일에 누적 저장.
+
+    Claude Haiku 사용 (저비용). 기존 용어집과 병합 — 기존 항목 우선.
+    """
+    if not glossary_file:
+        return
+
+    # EN/KO 쌍 샘플링 (최대 60개)
+    pairs = []
+    for s in subtitles:
+        if s.lines and s.translated:
+            pairs.append(f"EN: {' '.join(s.lines)}\nKO: {s.translated}")
+        if len(pairs) >= 60:
+            break
+
+    if not pairs:
+        return
+
+    existing = load_glossary(glossary_file)
+
+    prompt = f"""아래는 드라마 자막 번역 샘플입니다.
+고유명사(인물 이름, 지명, 단체명), 드라마 특유 용어만 추출해
+JSON 형식으로 반환하세요.
+
+규칙:
+- 일반 동사/형용사/부사 제외
+- 이미 확정된 용어집에 있는 항목은 그대로 유지
+- 형식: {{"영어": "한국어", ...}}
+- 항목이 없으면 {{}} 반환
+
+기존 확정 용어집:
+{json.dumps(existing, ensure_ascii=False, indent=2)}
+
+번역 샘플:
+{chr(10).join(pairs[:40])}
+
+JSON:"""
+
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = msg.content[0].text.strip()
+        # JSON 블록 추출
+        m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
+        if m:
+            new_terms = json.loads(m.group())
+            # 기존 항목 우선 병합 (기존값 보존)
+            merged = {**new_terms, **existing}
+            data = {
+                "version": 2,
+                "last_updated": __import__("datetime").date.today().isoformat(),
+                "terms": merged
+            }
+            os.makedirs(os.path.dirname(os.path.abspath(glossary_file)), exist_ok=True)
+            with open(glossary_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  ⚠ 용어집 추출 실패 (무시): {e}", flush=True)
+
+
+def generate_episode_summary(client, subtitles: list, story_file: str, episode_name: str):
+    """번역된 자막으로 에피소드 요약 생성 후 story_file에 누적 저장.
+
+    Claude Haiku 사용 (저비용).
+    """
+    if not story_file:
+        return
+
+    # 자막 샘플 (앞 30개 + 중간 20개 + 끝 20개)
+    total = len(subtitles)
+    mid = total // 2
+    sampled = subtitles[:30] + subtitles[mid:mid+20] + subtitles[max(0, total-20):]
+    text_sample = "\n".join(
+        s.translated for s in sampled if s.translated
+    )
+
+    prompt = f"""아래는 드라마 에피소드 자막(한국어 번역)의 일부입니다.
+등장인물, 주요 사건, 감정 흐름을 중심으로 3~5문장 요약을 한국어로 작성하세요.
+스포일러 없이 핵심만 간결하게.
+
+에피소드: {episode_name}
+
+자막 샘플:
+{text_sample[:3000]}
+
+요약:"""
+
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        summary = msg.content[0].text.strip()
+        os.makedirs(os.path.dirname(os.path.abspath(story_file)), exist_ok=True)
+        with open(story_file, "a", encoding="utf-8") as f:
+            f.write(f"\n## {episode_name}\n{summary}\n")
+    except Exception as e:
+        print(f"  ⚠ 스토리 요약 생성 실패 (무시): {e}", flush=True)
+
+
+def load_recent_story(story_file: str, max_episodes: int = 3) -> str:
+    """story_file에서 최근 N개 에피소드 요약을 읽어 컨텍스트용 텍스트로 반환."""
+    if not story_file or not os.path.exists(story_file):
+        return ""
+    with open(story_file, encoding="utf-8") as f:
+        content = f.read()
+    # ## 헤더로 분리
+    sections = re.split(r"\n(?=## )", content.strip())
+    recent = [s.strip() for s in sections if s.strip()][-max_episodes:]
+    if not recent:
+        return ""
+    return "## 이전 화 스토리 요약\n" + "\n\n".join(recent)
 
 
 # ─── 번역 ────────────────────────────────────────────────────
@@ -294,16 +471,23 @@ def translate_batch_with_retry(client, items, context="", max_retries=3):
 def translate_all(client, subtitles, srt_path, context="",
                   batch_size=BATCH_SIZE, start_from=0,
                   progress_callback=None,
-                  model_pricing=(3.0, 15.0)):
+                  model_pricing=(3.0, 15.0),
+                  cancel_event=None):
     """
     progress_callback(pct, done, total, cost_usd) — 진행률 콜백
     model_pricing: (input_price_per_mtok, output_price_per_mtok)
+    cancel_event: threading.Event — 세트되면 다음 배치 전에 중단
     """
     total = len(subtitles)
     total_in_tok = 0
     total_out_tok = 0
 
     for start in range(start_from, total, batch_size):
+        # 취소 확인 (배치 시작 전)
+        if cancel_event and cancel_event.is_set():
+            print("  ⏹ 번역 취소됨", flush=True)
+            break
+
         batch_subs = subtitles[start:start + batch_size]
         items = [(i, s.lines) for i, s in enumerate(batch_subs)]
         end = min(start + batch_size, total)

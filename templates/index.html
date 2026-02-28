@@ -22,7 +22,7 @@
   <div class="mb-8 flex items-center justify-between">
     <div>
       <h1 class="text-2xl font-bold text-gray-800">🎬 SRT 자막 번역기</h1>
-      <p class="text-gray-500 text-sm mt-1">뱀파이어와의 인터뷰 · Claude Sonnet 4.6 · 한국어</p>
+      <p id="header-subtitle" class="text-gray-500 text-sm mt-1">한국어 자막 번역</p>
     </div>
     <!-- 비용 게이지 -->
     <div id="cost-badge" class="hidden items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-full px-3 py-1">
@@ -39,6 +39,17 @@
 
   <!-- ─── 번역 탭 ─── -->
   <div id="panel-translate">
+
+    <!-- 프로필 선택 바 -->
+    <div class="flex items-center gap-3 mb-4 bg-white border border-gray-200 rounded-xl px-4 py-2.5">
+      <span class="text-xs text-gray-500 shrink-0">드라마 프로필</span>
+      <select id="profile-select" onchange="activateProfile(this.value)"
+              class="flex-1 border-0 text-sm font-medium text-gray-700 bg-transparent focus:outline-none cursor-pointer">
+      </select>
+      <button onclick="switchTab('settings')"
+              class="text-xs text-indigo-500 hover:text-indigo-700 shrink-0">편집 →</button>
+    </div>
+
     <!-- 드래그&드롭 존 -->
     <div id="drop-zone"
          class="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer bg-white hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
@@ -70,53 +81,128 @@
 
   <!-- ─── 설정 탭 ─── -->
   <div id="panel-settings" class="hidden">
-    <div class="space-y-5">
+    <div class="space-y-6">
 
-      <!-- 모델 & 배치크기 -->
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">모델</label>
-          <select id="cfg-model" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
-            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-            <option value="claude-opus-4-6">claude-opus-4-6</option>
-            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
-          </select>
+      <!-- ── 전역 설정 ── -->
+      <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm space-y-4">
+        <h3 class="text-sm font-semibold text-gray-700">전역 설정</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">모델</label>
+            <select id="cfg-model" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+              <option value="claude-opus-4-6">claude-opus-4-6</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">배치 크기</label>
+            <input id="cfg-batch" type="number" min="5" max="50"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+          </div>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">배치 크기</label>
-          <input id="cfg-batch" type="number" min="5" max="50"
-                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+          <label class="block text-xs font-medium text-gray-600 mb-1">API 키 (변경 시만 입력)</label>
+          <input id="cfg-apikey" type="password" placeholder="sk-ant-..."
+                 class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono">
+          <p class="text-xs text-gray-400 mt-1">비워두면 .env 파일의 키를 그대로 사용</p>
+        </div>
+        <div class="flex gap-3">
+          <button onclick="saveGlobalSettings()"
+                  class="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+            저장
+          </button>
+          <span id="save-msg" class="text-sm text-green-600 self-center hidden">저장됨 ✓</span>
         </div>
       </div>
 
-      <!-- 시스템 프롬프트 -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">시스템 프롬프트</label>
-        <textarea id="cfg-prompt" rows="10"
-                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-y"></textarea>
-      </div>
+      <!-- ── 프로필 관리 ── -->
+      <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-700">드라마 프로필</h3>
+          <button onclick="showNewProfileForm()"
+                  class="text-xs px-3 py-1 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors">
+            + 새 프로필
+          </button>
+        </div>
 
-      <!-- 캐릭터별 말투 -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">캐릭터별 말투</label>
-        <div class="space-y-2" id="character-list"></div>
-      </div>
+        <!-- 프로필 목록 -->
+        <div id="profile-list" class="space-y-2"></div>
 
-      <!-- API 키 -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">API 키 (변경 시만 입력)</label>
-        <input id="cfg-apikey" type="password" placeholder="sk-ant-..."
-               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono">
-        <p class="text-xs text-gray-400 mt-1">비워두면 .env 파일의 키를 그대로 사용</p>
-      </div>
+        <!-- 프로필 편집 폼 -->
+        <div id="profile-form" class="hidden border-t border-gray-100 pt-4 space-y-3">
+          <h4 id="profile-form-title" class="text-sm font-semibold text-gray-600">프로필 편집</h4>
 
-      <!-- 저장 버튼 -->
-      <div class="flex gap-3">
-        <button onclick="saveSettings()"
-                class="px-6 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
-          설정 저장
-        </button>
-        <span id="save-msg" class="text-sm text-green-600 self-center hidden">저장됨 ✓</span>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">프로필 이름</label>
+            <input id="pf-name" type="text" placeholder="예: 뱀파이어와의 인터뷰"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">시스템 프롬프트</label>
+            <textarea id="pf-prompt" rows="8"
+                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-y"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-2">캐릭터별 말투</label>
+            <div id="pf-character-list" class="space-y-2 mb-2"></div>
+            <button onclick="addCharacterRow()"
+                    class="text-xs text-indigo-500 hover:text-indigo-700">+ 캐릭터 추가</button>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">
+              컨텍스트 폴더 경로
+              <span class="font-normal text-gray-400">(줄바꿈으로 구분 — 시즌별 폴더 모두 입력)</span>
+            </label>
+            <textarea id="pf-folders" rows="3" placeholder="/path/to/Season1&#10;/path/to/Season2"
+                      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-y font-mono"></textarea>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">출력 폴더 경로</label>
+              <input id="pf-output" type="text" placeholder="/path/to/output (비우면 앱 폴더)"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">용어집 파일 경로</label>
+              <input id="pf-glossary" type="text" placeholder="/path/glossary.json"
+                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">스토리 요약 파일 경로</label>
+            <input id="pf-story" type="text" placeholder="/path/story.md"
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono">
+          </div>
+
+          <!-- 용어집 미리보기 -->
+          <div id="glossary-preview-wrap" class="hidden">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-medium text-gray-600">현재 용어집</span>
+              <button onclick="document.getElementById('glossary-preview-wrap').classList.add('hidden')"
+                      class="text-xs text-gray-400">닫기</button>
+            </div>
+            <div id="glossary-preview" class="text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+          </div>
+
+          <div class="flex gap-3 pt-1">
+            <button id="pf-save-btn" onclick="saveProfile()"
+                    class="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              저장
+            </button>
+            <button onclick="loadGlossaryPreview()"
+                    class="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition-colors">
+              용어집 보기
+            </button>
+            <button onclick="closeProfileForm()"
+                    class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">취소</button>
+            <span id="pf-save-msg" class="text-sm text-green-600 self-center hidden">저장됨 ✓</span>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -125,10 +211,21 @@
 
 <script>
 // ─── 상태 ────────────────────────────────────────────────────
-let fileQueue = [];   // [{file, id, status, jobId, es}]
+let fileQueue = [];
 let isProcessing = false;
 let totalCostUsd = 0;
 let queueIdCounter = 0;
+const itemCosts = {};
+
+// 프로필 상태
+let allProfiles = {};
+let currentProfileId = null;
+let editingProfileId = null;  // null = 새 프로필 생성
+
+// ─── 초기화 ──────────────────────────────────────────────────
+(async function init() {
+  await loadProfileList();
+})();
 
 // ─── 탭 전환 ─────────────────────────────────────────────────
 function switchTab(tab) {
@@ -137,6 +234,240 @@ function switchTab(tab) {
   document.getElementById('tab-translate').className = 'pb-2 text-sm ' + (tab === 'translate' ? 'tab-active' : 'text-gray-500');
   document.getElementById('tab-settings').className  = 'pb-2 text-sm ' + (tab === 'settings'  ? 'tab-active' : 'text-gray-500');
   if (tab === 'settings') loadSettings();
+}
+
+// ─── 프로필 목록 로드 ─────────────────────────────────────────
+async function loadProfileList() {
+  try {
+    const res = await fetch('/profiles');
+    const data = await res.json();
+    allProfiles = data.profiles || {};
+    currentProfileId = data.current_profile;
+
+    // 번역 탭 드롭다운 업데이트
+    const sel = document.getElementById('profile-select');
+    sel.innerHTML = '';
+    for (const [pid, p] of Object.entries(allProfiles)) {
+      const opt = document.createElement('option');
+      opt.value = pid;
+      opt.textContent = p.name;
+      if (pid === currentProfileId) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    // 헤더 서브타이틀 업데이트
+    const cur = allProfiles[currentProfileId];
+    if (cur) {
+      document.getElementById('header-subtitle').textContent = cur.name + ' · 한국어';
+    }
+
+    renderProfileList();
+  } catch(e) { console.error(e); }
+}
+
+// ─── 프로필 활성화 ────────────────────────────────────────────
+async function activateProfile(pid) {
+  const res = await fetch(`/profiles/${pid}/activate`, { method: 'POST' });
+  if (res.ok) {
+    currentProfileId = pid;
+    const cur = allProfiles[pid];
+    if (cur) document.getElementById('header-subtitle').textContent = cur.name + ' · 한국어';
+  }
+}
+
+// ─── 설정 탭 로드 ─────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const res = await fetch('/settings');
+    const cfg = await res.json();
+    document.getElementById('cfg-model').value = cfg.model || 'claude-sonnet-4-6';
+    document.getElementById('cfg-batch').value = cfg.batch_size || 20;
+    renderProfileList();
+  } catch(e) { console.error(e); }
+}
+
+// ─── 전역 설정 저장 ───────────────────────────────────────────
+async function saveGlobalSettings() {
+  const payload = {
+    model: document.getElementById('cfg-model').value,
+    batch_size: parseInt(document.getElementById('cfg-batch').value),
+    api_key: document.getElementById('cfg-apikey').value || null,
+  };
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (res.ok) {
+    const msg = document.getElementById('save-msg');
+    msg.classList.remove('hidden');
+    setTimeout(() => msg.classList.add('hidden'), 2000);
+  }
+}
+
+// ─── 프로필 목록 렌더링 ───────────────────────────────────────
+function renderProfileList() {
+  const list = document.getElementById('profile-list');
+  list.innerHTML = '';
+  for (const [pid, p] of Object.entries(allProfiles)) {
+    const isActive = pid === currentProfileId;
+    const div = document.createElement('div');
+    div.className = `flex items-center justify-between px-3 py-2 rounded-lg border ${isActive ? 'border-indigo-200 bg-indigo-50' : 'border-gray-100 bg-gray-50'}`;
+    div.innerHTML = `
+      <div class="flex items-center gap-2">
+        ${isActive ? '<span class="text-xs px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600 font-medium">활성</span>' : ''}
+        <span class="text-sm font-medium text-gray-700">${p.name}</span>
+      </div>
+      <div class="flex gap-2">
+        ${!isActive ? `<button onclick="activateAndRefresh('${pid}')" class="text-xs text-indigo-500 hover:text-indigo-700">활성화</button>` : ''}
+        <button onclick="editProfile('${pid}')" class="text-xs text-gray-500 hover:text-gray-700">편집</button>
+        ${!isActive ? `<button onclick="deleteProfile('${pid}')" class="text-xs text-red-400 hover:text-red-600">삭제</button>` : ''}
+      </div>
+    `;
+    list.appendChild(div);
+  }
+}
+
+async function activateAndRefresh(pid) {
+  await activateProfile(pid);
+  await loadProfileList();
+  renderProfileList();
+}
+
+// ─── 프로필 편집 폼 열기 ──────────────────────────────────────
+async function editProfile(pid) {
+  editingProfileId = pid;
+  document.getElementById('profile-form-title').textContent = '프로필 편집';
+
+  // 프로필 데이터 로드
+  const res = await fetch('/settings');
+  const cfg = await res.json();
+  const profiles = cfg.profiles || {};
+  const p = profiles[pid] || {};
+
+  document.getElementById('pf-name').value = p.name || '';
+  document.getElementById('pf-prompt').value = p.system_prompt || '';
+  document.getElementById('pf-folders').value = (p.context_folders || []).join('\n');
+  document.getElementById('pf-output').value = p.output_folder || '';
+  document.getElementById('pf-glossary').value = p.glossary_file || '';
+  document.getElementById('pf-story').value = p.story_file || '';
+
+  // 캐릭터 목록
+  const charList = document.getElementById('pf-character-list');
+  charList.innerHTML = '';
+  for (const [name, note] of Object.entries(p.character_notes || {})) {
+    charList.appendChild(makeCharRow(name, note));
+  }
+
+  document.getElementById('glossary-preview-wrap').classList.add('hidden');
+  document.getElementById('profile-form').classList.remove('hidden');
+}
+
+function showNewProfileForm() {
+  editingProfileId = null;
+  document.getElementById('profile-form-title').textContent = '새 프로필 추가';
+  document.getElementById('pf-name').value = '';
+  document.getElementById('pf-prompt').value = '';
+  document.getElementById('pf-folders').value = '';
+  document.getElementById('pf-output').value = '';
+  document.getElementById('pf-glossary').value = '';
+  document.getElementById('pf-story').value = '';
+  document.getElementById('pf-character-list').innerHTML = '';
+  document.getElementById('glossary-preview-wrap').classList.add('hidden');
+  document.getElementById('profile-form').classList.remove('hidden');
+}
+
+function closeProfileForm() {
+  document.getElementById('profile-form').classList.add('hidden');
+  editingProfileId = null;
+}
+
+// ─── 캐릭터 행 생성 ───────────────────────────────────────────
+function makeCharRow(name, note) {
+  const div = document.createElement('div');
+  div.className = 'flex gap-2 items-start';
+  div.innerHTML = `
+    <input type="text" placeholder="이름" value="${name}"
+           class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs shrink-0 char-name">
+    <textarea rows="2" placeholder="말투 설명"
+              class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-y char-note">${note}</textarea>
+    <button onclick="this.parentElement.remove()" class="text-gray-300 hover:text-red-400 pt-1.5 text-sm shrink-0">✕</button>
+  `;
+  return div;
+}
+
+function addCharacterRow() {
+  document.getElementById('pf-character-list').appendChild(makeCharRow('', ''));
+}
+
+// ─── 프로필 저장 ──────────────────────────────────────────────
+async function saveProfile() {
+  const characters = {};
+  document.querySelectorAll('#pf-character-list .char-name').forEach((nameEl, i) => {
+    const noteEl = document.querySelectorAll('#pf-character-list .char-note')[i];
+    if (nameEl.value.trim()) characters[nameEl.value.trim()] = noteEl.value;
+  });
+
+  const payload = {
+    name: document.getElementById('pf-name').value,
+    system_prompt: document.getElementById('pf-prompt').value,
+    character_notes: characters,
+    context_folders: document.getElementById('pf-folders').value.split('\n').map(s => s.trim()).filter(Boolean),
+    output_folder: document.getElementById('pf-output').value.trim() || null,
+    glossary_file: document.getElementById('pf-glossary').value.trim() || null,
+    story_file: document.getElementById('pf-story').value.trim() || null,
+  };
+
+  let res;
+  if (editingProfileId) {
+    res = await fetch(`/profiles/${editingProfileId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } else {
+    res = await fetch('/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  if (res.ok) {
+    const msg = document.getElementById('pf-save-msg');
+    msg.classList.remove('hidden');
+    setTimeout(() => msg.classList.add('hidden'), 2000);
+    await loadProfileList();
+    renderProfileList();
+  }
+}
+
+// ─── 프로필 삭제 ──────────────────────────────────────────────
+async function deleteProfile(pid) {
+  if (!confirm(`이 프로필을 삭제하시겠습니까?`)) return;
+  const res = await fetch(`/profiles/${pid}`, { method: 'DELETE' });
+  if (res.ok) {
+    await loadProfileList();
+    renderProfileList();
+    closeProfileForm();
+  } else {
+    const d = await res.json();
+    alert(d.error || '삭제 실패');
+  }
+}
+
+// ─── 용어집 미리보기 ──────────────────────────────────────────
+async function loadGlossaryPreview() {
+  const pid = editingProfileId || currentProfileId;
+  if (!pid) return;
+  const res = await fetch(`/profiles/${pid}/glossary`);
+  const data = await res.json();
+  const terms = data.terms || {};
+  const count = data.count || 0;
+  const lines = Object.entries(terms).map(([en, ko]) => `${en} → ${ko}`).join('\n');
+  document.getElementById('glossary-preview').textContent =
+    count > 0 ? `총 ${count}개 용어\n\n${lines}` : '(용어집이 없거나 비어 있습니다)';
+  document.getElementById('glossary-preview-wrap').classList.remove('hidden');
 }
 
 // ─── 드래그&드롭 ──────────────────────────────────────────────
@@ -174,7 +505,7 @@ function renderItem(item) {
   const container = document.getElementById('file-queue');
   const div = document.createElement('div');
   div.id = 'item-' + item.id;
-  div.className = 'bg-white border border-gray-100 rounded-xl p-4 shadow-sm';
+  div.className = 'bg-white border border-gray-100 rounded-xl p-4 shadow-sm relative';
   div.innerHTML = `
     <div class="flex items-center justify-between mb-2">
       <div class="flex items-center gap-2 min-w-0">
@@ -184,7 +515,11 @@ function renderItem(item) {
         </svg>
         <span class="text-sm font-medium text-gray-700 truncate">${item.file.name}</span>
       </div>
-      <span id="badge-${item.id}" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 shrink-0">대기 중</span>
+      <div class="flex items-center gap-2 shrink-0">
+        <span id="badge-${item.id}" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">대기 중</span>
+        <button onclick="cancelItem(${item.id})" id="cancel-btn-${item.id}"
+                class="text-gray-300 hover:text-red-400 transition-colors text-sm leading-none" title="제거">✕</button>
+      </div>
     </div>
     <div id="bar-wrap-${item.id}" class="hidden">
       <div class="w-full bg-gray-100 rounded-full h-1.5">
@@ -206,8 +541,37 @@ function renderItem(item) {
 
 function setBadge(id, text, colorClass) {
   const el = document.getElementById('badge-' + id);
+  if (!el) return;
   el.textContent = text;
-  el.className = `text-xs px-2 py-0.5 rounded-full shrink-0 ${colorClass}`;
+  el.className = `text-xs px-2 py-0.5 rounded-full ${colorClass}`;
+}
+
+// ─── 개별 파일 취소 / 제거 ────────────────────────────────────
+async function cancelItem(id) {
+  const item = fileQueue.find(i => i.id === id);
+  if (!item) {
+    // 이미 큐에서 없는 경우 DOM만 제거
+    document.getElementById('item-' + id)?.remove();
+    return;
+  }
+
+  if (item.status === 'pending') {
+    // 대기 중: 즉시 제거
+    fileQueue = fileQueue.filter(i => i.id !== id);
+    document.getElementById('item-' + id)?.remove();
+  } else if (item.status === 'running') {
+    // 번역 중: 서버에 취소 요청 (SSE cancelled 이벤트로 UI 업데이트됨)
+    if (item.jobId) {
+      try { await fetch('/cancel/' + item.jobId, { method: 'POST' }); } catch(e) {}
+    }
+    // 취소 버튼 비활성화 (중복 클릭 방지)
+    const btn = document.getElementById('cancel-btn-' + id);
+    if (btn) { btn.disabled = true; btn.classList.add('opacity-30'); }
+  } else {
+    // 완료 / 오류 / 취소됨: DOM 제거
+    fileQueue = fileQueue.filter(i => i.id !== id);
+    document.getElementById('item-' + id)?.remove();
+  }
 }
 
 // ─── 순차 처리 ────────────────────────────────────────────────
@@ -218,10 +582,9 @@ async function processNext() {
   isProcessing = true;
   item.status = 'running';
 
-  // 스피너 + 뱃지
-  document.querySelector(`.spinner-${item.id}`).classList.remove('hidden');
+  document.querySelector(`.spinner-${item.id}`)?.classList.remove('hidden');
   setBadge(item.id, '번역 중', 'bg-indigo-100 text-indigo-600');
-  document.getElementById(`bar-wrap-${item.id}`).classList.remove('hidden');
+  document.getElementById(`bar-wrap-${item.id}`)?.classList.remove('hidden');
 
   const useContext = document.getElementById('opt-context').checked;
   const reset = document.getElementById('opt-reset').checked;
@@ -235,7 +598,6 @@ async function processNext() {
     const res = await fetch('/translate', { method: 'POST', body: formData });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '서버 오류');
-
     item.jobId = data.job_id;
     listenProgress(item);
   } catch (err) {
@@ -252,29 +614,60 @@ function listenProgress(item) {
 
   es.addEventListener('progress', (e) => {
     const d = JSON.parse(e.data);
-    document.getElementById(`bar-${item.id}`).style.width = d.pct + '%';
-    document.getElementById(`pct-${item.id}`).textContent = Math.round(d.pct) + '%';
-    document.getElementById(`detail-${item.id}`).textContent = `${d.done}/${d.total}`;
-
-    // 비용 갱신
+    const bar = document.getElementById(`bar-${item.id}`);
+    if (bar) bar.style.width = d.pct + '%';
+    const pct = document.getElementById(`pct-${item.id}`);
+    if (pct) pct.textContent = Math.round(d.pct) + '%';
+    const det = document.getElementById(`detail-${item.id}`);
+    if (det) det.textContent = `${d.done}/${d.total}`;
     if (d.cost_usd !== undefined) updateCost(d.cost_usd, item);
   });
 
   es.addEventListener('done', () => {
     es.close();
     item.status = 'done';
-    document.querySelector(`.spinner-${item.id}`).classList.add('hidden');
-    document.getElementById(`bar-${item.id}`).style.width = '100%';
-    document.getElementById(`pct-${item.id}`).textContent = '100%';
-    document.getElementById(`detail-${item.id}`).textContent = '완료';
+    document.querySelector(`.spinner-${item.id}`)?.classList.add('hidden');
+    const bar = document.getElementById(`bar-${item.id}`);
+    if (bar) bar.style.width = '100%';
+    const pct = document.getElementById(`pct-${item.id}`);
+    if (pct) pct.textContent = '100%';
+    const det = document.getElementById(`detail-${item.id}`);
+    if (det) det.textContent = '완료';
     setBadge(item.id, '완료 ✅', 'bg-green-100 text-green-600');
 
     const dl = document.getElementById(`dl-${item.id}`);
-    dl.classList.remove('hidden');
-    dl.classList.add('flex');
-    document.getElementById(`dl-srt-${item.id}`).href = '/download/' + item.jobId + '/srt';
-    document.getElementById(`dl-smi-${item.id}`).href = '/download/' + item.jobId + '/smi';
+    if (dl) {
+      dl.classList.remove('hidden');
+      dl.classList.add('flex');
+      document.getElementById(`dl-srt-${item.id}`).href = '/download/' + item.jobId + '/srt';
+      document.getElementById(`dl-smi-${item.id}`).href = '/download/' + item.jobId + '/smi';
+    }
+    processNext();
+  });
 
+  es.addEventListener('cancelled', (e) => {
+    es.close();
+    item.status = 'cancelled';
+    document.querySelector(`.spinner-${item.id}`)?.classList.add('hidden');
+    setBadge(item.id, '취소됨', 'bg-gray-100 text-gray-400');
+    const btn = document.getElementById('cancel-btn-' + item.id);
+    if (btn) { btn.disabled = false; btn.classList.remove('opacity-30'); }
+
+    // 부분 번역이 있으면 다운로드 링크 표시
+    try {
+      const d = JSON.parse(e.data);
+      if (d.has_partial) {
+        const dl = document.getElementById(`dl-${item.id}`);
+        if (dl) {
+          dl.classList.remove('hidden');
+          dl.classList.add('flex');
+          document.getElementById(`dl-srt-${item.id}`).href = '/download/' + item.jobId + '/srt';
+          document.getElementById(`dl-smi-${item.id}`).href = '/download/' + item.jobId + '/smi';
+        }
+        const det = document.getElementById(`detail-${item.id}`);
+        if (det) det.textContent = '(부분 번역)';
+      }
+    } catch(err) {}
     processNext();
   });
 
@@ -295,17 +688,13 @@ function listenProgress(item) {
 
 function markError(item, msg) {
   item.status = 'error';
-  document.querySelector(`.spinner-${item.id}`).classList.add('hidden');
+  document.querySelector(`.spinner-${item.id}`)?.classList.add('hidden');
   setBadge(item.id, '오류 ❌', 'bg-red-100 text-red-600');
   const errEl = document.getElementById(`err-${item.id}`);
-  errEl.textContent = msg;
-  errEl.classList.remove('hidden');
+  if (errEl) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
 }
 
 // ─── 비용 표시 ────────────────────────────────────────────────
-// 각 아이템의 마지막 알려진 비용을 추적
-const itemCosts = {};
-
 function updateCost(itemCostUsd, item) {
   itemCosts[item.id] = itemCostUsd;
   totalCostUsd = Object.values(itemCosts).reduce((a, b) => a + b, 0);
@@ -313,54 +702,6 @@ function updateCost(itemCostUsd, item) {
   badge.classList.remove('hidden');
   badge.classList.add('flex');
   document.getElementById('cost-value').textContent = '$' + totalCostUsd.toFixed(4);
-}
-
-// ─── 설정 로드/저장 ───────────────────────────────────────────
-async function loadSettings() {
-  const res = await fetch('/settings');
-  const cfg = await res.json();
-
-  document.getElementById('cfg-model').value = cfg.model || 'claude-sonnet-4-6';
-  document.getElementById('cfg-batch').value = cfg.batch_size || 20;
-  document.getElementById('cfg-prompt').value = cfg.system_prompt || '';
-
-  const container = document.getElementById('character-list');
-  container.innerHTML = '';
-  for (const [name, note] of Object.entries(cfg.character_notes || {})) {
-    container.innerHTML += `
-      <div class="flex gap-2 items-start">
-        <span class="w-20 text-xs text-gray-500 pt-2 shrink-0">${name}</span>
-        <textarea data-char="${name}" rows="2"
-          class="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-y">${note}</textarea>
-      </div>`;
-  }
-}
-
-async function saveSettings() {
-  const characters = {};
-  document.querySelectorAll('[data-char]').forEach(el => {
-    characters[el.dataset.char] = el.value;
-  });
-
-  const payload = {
-    model: document.getElementById('cfg-model').value,
-    batch_size: parseInt(document.getElementById('cfg-batch').value),
-    system_prompt: document.getElementById('cfg-prompt').value,
-    character_notes: characters,
-    api_key: document.getElementById('cfg-apikey').value || null,
-  };
-
-  const res = await fetch('/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (res.ok) {
-    const msg = document.getElementById('save-msg');
-    msg.classList.remove('hidden');
-    setTimeout(() => msg.classList.add('hidden'), 2000);
-  }
 }
 </script>
 </body>
