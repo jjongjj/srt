@@ -540,10 +540,9 @@ def resave_with_original(srt_path: str, bilingual: bool = False,
     if len(orig_subs) != len(ko_subs):
         print(f"  ⚠ 자막 수 불일치 (원본: {len(orig_subs)}, 번역: {len(ko_subs)}) — 인덱스 매칭 시도")
 
-    # [IN FRENCH:] 마커 기반 컨텍스트 인덱스 계산
-    french_ctx = get_french_context_indices(orig_subs) if french_bilingual else set()
-    if french_ctx:
-        print(f"  프랑스어 컨텍스트 인덱스: {len(french_ctx)}개 추가")
+    # is_french_text()만으로 이중 표기 결정 (컨텍스트 확장 제거)
+    # get_french_context_indices() 제거: 영어 나레이션까지 이중 표기되던 문제 수정
+    french_ctx: set = set()
 
     # 인덱스 기준 매칭: 원본 lines + 번역 translated 합치기 (멱등성 보장)
     merged = []
@@ -735,8 +734,8 @@ def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = F
 
     translate_all(client, subtitles, srt_path, context=context, start_from=start_from)
 
-    # [IN FRENCH:] 컨텍스트 인덱스 계산
-    french_ctx = get_french_context_indices(subtitles) if french_bilingual else set()
+    # is_french_text()만으로 이중 표기 결정 (컨텍스트 확장 제거)
+    french_ctx: set = set()
 
     print("\n저장 중...", flush=True)
     save_srt(subtitles, out_srt, bilingual=bilingual, french_bilingual=french_bilingual,
