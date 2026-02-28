@@ -132,6 +132,57 @@ def is_french_text(text: str) -> bool:
     return len(_FRENCH_WORDS.findall(clean)) >= 2
 
 
+_FRENCH_SCENE_MARKER = re.compile(
+    r"(?:"
+    r"\[(?:IN FRENCH|SPEECH IN FRENCH)[^\]]*\]"   # [bracket] 형식
+    r"|\bIN FRENCH\b"                              # 평문 "IN FRENCH" 형식
+    r"|\bSPEECH IN FRENCH\b"                       # 평문 "SPEECH IN FRENCH" 형식
+    r")",
+    re.IGNORECASE
+)
+
+def get_french_context_indices(subtitles: list) -> set:
+    """[IN FRENCH:] 류 마커 이후 영어 번역 블록의 인덱스 반환.
+
+    원본 SRT에 영어 번역으로 표기된 프랑스어 대사 줄을
+    is_french_text()가 감지 못하는 경우를 보완.
+
+    알고리즘:
+    - 마커 또는 실제 프랑스어 줄 감지 시 last_french_ms 갱신
+    - 이후 영어 줄이 last_french_ms + GAP_MS 이내이면 CTX 포함
+    - GAP_MS(3분) 경과 시 장면 종료
+    - 영어 줄은 윈도우를 갱신하지 않음 → 마지막 프랑스어 기준으로 창 고정
+    """
+    GAP_MS = 3 * 60 * 1000  # 3분
+    indices = set()
+    in_french_scene = False
+    last_french_ms = 0  # 마지막 프랑스어(마커/감지) 줄의 end_ms
+
+    for s in subtitles:
+        text = " ".join(s.lines)
+
+        if _FRENCH_SCENE_MARKER.search(text):
+            # 마커 자체는 포함하지 않음 — 이후 장면 활성화
+            in_french_scene = True
+            last_french_ms = s.end_ms
+            continue
+
+        if not in_french_scene:
+            continue
+
+        if is_french_text(text):
+            # 실제 프랑스어 줄 → 윈도우 갱신 (is_french_text가 이중표기 처리)
+            last_french_ms = s.end_ms
+        else:
+            # 영어 줄: 마지막 프랑스어 기준 3분 이내면 CTX
+            if s.start_ms <= last_french_ms + GAP_MS:
+                indices.add(s.index)
+            else:
+                in_french_scene = False  # 장면 종료
+
+    return indices
+
+
 # ─── SRT 파싱/저장 ────────────────────────────────────────────
 def ts_to_ms(ts: str) -> int:
     ts = ts.strip().replace(",", ".")
@@ -169,14 +220,41 @@ def parse_srt(path: str) -> list:
     return subtitles
 
 
+def _extract_korean_only(orig_lines: list, ko_lines: list) -> str:
+    """ko.srt가 이미 이중 표기(원문+한국어)된 경우 한국어 부분만 추출.
+
+    원본 줄을 join한 문자열이 ko_lines[0]과 일치하면 이미 이중 표기로 판단,
+    나머지를 한국어로 반환. 아닌 경우 ko_lines 전체를 반환.
+    멱등성 보장 — resave를 여러 번 실행해도 중복 적용 방지.
+    """
+    if not ko_lines:
+        return ""
+    orig_joined = " ".join(orig_lines).strip()
+    if ko_lines[0].strip() == orig_joined:
+        # 첫 줄 = 원문 → 나머지가 한국어 번역
+        remaining = ko_lines[1:]
+        return " ".join(remaining) if remaining else orig_joined
+    return " ".join(ko_lines)
+
+
 def save_srt(subtitles: list, out_path: str, bilingual: bool = False,
-             french_bilingual: bool = False):
+             french_bilingual: bool = False, french_context: set = None):
+    """SRT 저장.
+
+    french_context: get_french_context_indices()가 반환한 인덱스 집합.
+                    is_french_text() 미감지 줄도 이중 표기 대상에 포함.
+    """
+    if french_context is None:
+        french_context = set()
     out = []
     for i, s in enumerate(subtitles, 1):
         out.append(str(i))
         out.append(f"{ms_to_ts(s.start_ms)} --> {ms_to_ts(s.end_ms)}")
         orig = " ".join(s.lines) if s.lines else ""
-        if french_bilingual and s.lines and is_french_text(orig):
+        is_french = french_bilingual and s.lines and (
+            is_french_text(orig) or s.index in french_context
+        )
+        if is_french:
             # 프랑스어 줄: 원문 위에, 한국어 아래
             out.append(orig)
             out.append(s.translated.replace(" / ", "\n"))
@@ -190,7 +268,13 @@ def save_srt(subtitles: list, out_path: str, bilingual: bool = False,
 
 
 def save_smi(subtitles: list, out_path: str, title: str = "", bilingual: bool = False,
-             french_bilingual: bool = False):
+             french_bilingual: bool = False, french_context: set = None):
+    """SMI 저장.
+
+    french_context: get_french_context_indices()가 반환한 인덱스 집합.
+    """
+    if french_context is None:
+        french_context = set()
     header = f"""<SAMI>
 <HEAD>
 <TITLE>{title}</TITLE>
@@ -207,7 +291,10 @@ P {{ margin-left:8pt; margin-right:8pt; margin-bottom:2pt; margin-top:2pt;
     for s in subtitles:
         html = s.translated.replace(" / ", "<br>")
         orig = " ".join(s.lines) if s.lines else ""
-        if french_bilingual and s.lines and is_french_text(orig):
+        is_french = french_bilingual and s.lines and (
+            is_french_text(orig) or s.index in french_context
+        )
+        if is_french:
             # 프랑스어 줄: 원문 위에, 한국어 아래
             html = f"<i>{orig}</i><br>" + html
         elif bilingual and s.lines:
@@ -453,22 +540,30 @@ def resave_with_original(srt_path: str, bilingual: bool = False,
     if len(orig_subs) != len(ko_subs):
         print(f"  ⚠ 자막 수 불일치 (원본: {len(orig_subs)}, 번역: {len(ko_subs)}) — 인덱스 매칭 시도")
 
-    # 인덱스 기준 매칭: 원본 lines + 번역 translated 합치기
+    # [IN FRENCH:] 마커 기반 컨텍스트 인덱스 계산
+    french_ctx = get_french_context_indices(orig_subs) if french_bilingual else set()
+    if french_ctx:
+        print(f"  프랑스어 컨텍스트 인덱스: {len(french_ctx)}개 추가")
+
+    # 인덱스 기준 매칭: 원본 lines + 번역 translated 합치기 (멱등성 보장)
     merged = []
     for o in orig_subs:
         # 동일 index인 번역 자막 찾기
         tr_sub = next((k for k in ko_subs if k.index == o.index), None)
         if tr_sub:
-            o.translated = " ".join(tr_sub.lines)  # ko.srt의 텍스트를 translated로
+            # 멱등성: ko.srt가 이미 이중 표기된 경우 한국어만 추출
+            o.translated = _extract_korean_only(o.lines, tr_sub.lines)
         else:
             o.translated = " ".join(o.lines)  # 번역 없으면 원문 유지
         merged.append(o)
 
     out_srt = base + ".ko.srt"
     out_smi = base + ".ko.smi"
-    save_srt(merged, out_srt, bilingual=bilingual, french_bilingual=french_bilingual)
+    save_srt(merged, out_srt, bilingual=bilingual, french_bilingual=french_bilingual,
+             french_context=french_ctx)
     save_smi(merged, out_smi, title=os.path.basename(base),
-             bilingual=bilingual, french_bilingual=french_bilingual)
+             bilingual=bilingual, french_bilingual=french_bilingual,
+             french_context=french_ctx)
     print(f"  → {out_srt}")
     print(f"  → {out_smi}")
     return True
@@ -640,10 +735,15 @@ def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = F
 
     translate_all(client, subtitles, srt_path, context=context, start_from=start_from)
 
+    # [IN FRENCH:] 컨텍스트 인덱스 계산
+    french_ctx = get_french_context_indices(subtitles) if french_bilingual else set()
+
     print("\n저장 중...", flush=True)
-    save_srt(subtitles, out_srt, bilingual=bilingual, french_bilingual=french_bilingual)
+    save_srt(subtitles, out_srt, bilingual=bilingual, french_bilingual=french_bilingual,
+             french_context=french_ctx)
     save_smi(subtitles, out_smi, title=os.path.basename(base),
-             bilingual=bilingual, french_bilingual=french_bilingual)
+             bilingual=bilingual, french_bilingual=french_bilingual,
+             french_context=french_ctx)
     clear_progress(srt_path)  # 완료 후 진행 파일 삭제
     print(f"  → {out_srt}")
     print(f"  → {out_smi}")
