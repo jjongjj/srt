@@ -159,7 +159,8 @@ def translate():
 
 
 def _run_translation(job_id, srt_path, job_dir, api_key, reset,
-                     progress_q, cancel_event, context_folders, profile, bilingual=False):
+                     progress_q, cancel_event, context_folders, profile, bilingual=False,
+                     french_bilingual=True):
     try:
         reload_srt_config()
         client = anthropic.Anthropic(api_key=api_key)
@@ -212,8 +213,8 @@ def _run_translation(job_id, srt_path, job_dir, api_key, reset,
             out_smi = base + ".ko.smi"
             translated_subs = [s for s in subtitles if s.translated]
             if translated_subs:
-                srt_core.save_srt(translated_subs, out_srt, bilingual=bilingual)
-                srt_core.save_smi(translated_subs, out_smi, title=os.path.basename(base), bilingual=bilingual)
+                srt_core.save_srt(translated_subs, out_srt, bilingual=bilingual, french_bilingual=french_bilingual)
+                srt_core.save_smi(translated_subs, out_smi, title=os.path.basename(base), bilingual=bilingual, french_bilingual=french_bilingual)
                 with JOBS_LOCK:
                     JOBS[job_id]["status"]  = "cancelled"
                     JOBS[job_id]["out_srt"] = out_srt
@@ -229,8 +230,8 @@ def _run_translation(job_id, srt_path, job_dir, api_key, reset,
         out_srt = base + ".ko.srt"
         out_smi = base + ".ko.smi"
 
-        srt_core.save_srt(subtitles, out_srt, bilingual=bilingual)
-        srt_core.save_smi(subtitles, out_smi, title=os.path.basename(base), bilingual=bilingual)
+        srt_core.save_srt(subtitles, out_srt, bilingual=bilingual, french_bilingual=french_bilingual)
+        srt_core.save_smi(subtitles, out_smi, title=os.path.basename(base), bilingual=bilingual, french_bilingual=french_bilingual)
         srt_core.clear_progress(srt_path)
 
         # 완료된 번역 파일 저장
