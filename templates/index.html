@@ -73,6 +73,10 @@
         <input id="opt-reset" type="checkbox" class="rounded accent-indigo-500">
         처음부터 다시 번역
       </label>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input id="opt-bilingual" type="checkbox" class="rounded accent-indigo-500">
+        🌐 이중 자막 (한국어 + 영어)
+      </label>
     </div>
 
     <!-- 파일 큐 목록 -->
@@ -588,11 +592,13 @@ async function processNext() {
 
   const useContext = document.getElementById('opt-context').checked;
   const reset = document.getElementById('opt-reset').checked;
+  const bilingual = document.getElementById('opt-bilingual').checked;
 
   const formData = new FormData();
   formData.append('file', item.file);
   formData.append('use_context', useContext);
   formData.append('reset', reset);
+  formData.append('bilingual', bilingual);
 
   try {
     const res = await fetch('/translate', { method: 'POST', body: formData });

@@ -147,18 +147,20 @@ def parse_srt(path: str) -> list:
     return subtitles
 
 
-def save_srt(subtitles: list, out_path: str):
+def save_srt(subtitles: list, out_path: str, bilingual: bool = False):
     out = []
     for i, s in enumerate(subtitles, 1):
         out.append(str(i))
         out.append(f"{ms_to_ts(s.start_ms)} --> {ms_to_ts(s.end_ms)}")
         out.append(s.translated.replace(" / ", "\n"))
+        if bilingual and s.lines:
+            out.append(" ".join(s.lines))
         out.append("")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
 
 
-def save_smi(subtitles: list, out_path: str, title: str = ""):
+def save_smi(subtitles: list, out_path: str, title: str = "", bilingual: bool = False):
     header = f"""<SAMI>
 <HEAD>
 <TITLE>{title}</TITLE>
@@ -174,6 +176,9 @@ P {{ margin-left:8pt; margin-right:8pt; margin-bottom:2pt; margin-top:2pt;
     parts = []
     for s in subtitles:
         html = s.translated.replace(" / ", "<br>")
+        if bilingual and s.lines:
+            eng = " ".join(s.lines)
+            html += f"<br><i>{eng}</i>"
         parts.append(
             f'<SYNC start="{s.start_ms}"><P class="KRCC">{html}</P></SYNC>\n'
             f'<SYNC start="{s.end_ms}"><P class="KRCC">&nbsp;</P></SYNC>'
@@ -513,7 +518,7 @@ def translate_all(client, subtitles, srt_path, context="",
 
 
 # ─── 파일 처리 ───────────────────────────────────────────────
-def process_file(client, srt_path: str, reset: bool = False):
+def process_file(client, srt_path: str, reset: bool = False, bilingual: bool = False):
     base = os.path.splitext(srt_path)[0]
     out_srt = base + ".ko.srt"
     out_smi = base + ".ko.smi"
@@ -554,8 +559,8 @@ def process_file(client, srt_path: str, reset: bool = False):
     translate_all(client, subtitles, srt_path, context=context, start_from=start_from)
 
     print("\n저장 중...", flush=True)
-    save_srt(subtitles, out_srt)
-    save_smi(subtitles, out_smi, title=os.path.basename(base))
+    save_srt(subtitles, out_srt, bilingual=bilingual)
+    save_smi(subtitles, out_smi, title=os.path.basename(base), bilingual=bilingual)
     clear_progress(srt_path)  # 완료 후 진행 파일 삭제
     print(f"  → {out_srt}")
     print(f"  → {out_smi}")

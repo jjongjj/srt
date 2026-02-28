@@ -108,6 +108,7 @@ def translate():
 
     use_context = request.form.get("use_context", "true").lower() == "true"
     reset       = request.form.get("reset", "false").lower() == "true"
+    bilingual   = request.form.get("bilingual", "false").lower() == "true"
 
     api_key = get_api_key()
     if not api_key:
@@ -149,7 +150,7 @@ def translate():
     thread = threading.Thread(
         target=_run_translation,
         args=(job_id, srt_path, job_dir, api_key, reset,
-              progress_q, cancel_event, context_folders_for_job, profile),
+              progress_q, cancel_event, context_folders_for_job, profile, bilingual),
         daemon=True,
     )
     thread.start()
@@ -158,7 +159,7 @@ def translate():
 
 
 def _run_translation(job_id, srt_path, job_dir, api_key, reset,
-                     progress_q, cancel_event, context_folders, profile):
+                     progress_q, cancel_event, context_folders, profile, bilingual=False):
     try:
         reload_srt_config()
         client = anthropic.Anthropic(api_key=api_key)
@@ -211,8 +212,8 @@ def _run_translation(job_id, srt_path, job_dir, api_key, reset,
             out_smi = base + ".ko.smi"
             translated_subs = [s for s in subtitles if s.translated]
             if translated_subs:
-                srt_core.save_srt(translated_subs, out_srt)
-                srt_core.save_smi(translated_subs, out_smi, title=os.path.basename(base))
+                srt_core.save_srt(translated_subs, out_srt, bilingual=bilingual)
+                srt_core.save_smi(translated_subs, out_smi, title=os.path.basename(base), bilingual=bilingual)
                 with JOBS_LOCK:
                     JOBS[job_id]["status"]  = "cancelled"
                     JOBS[job_id]["out_srt"] = out_srt
@@ -228,8 +229,8 @@ def _run_translation(job_id, srt_path, job_dir, api_key, reset,
         out_srt = base + ".ko.srt"
         out_smi = base + ".ko.smi"
 
-        srt_core.save_srt(subtitles, out_srt)
-        srt_core.save_smi(subtitles, out_smi, title=os.path.basename(base))
+        srt_core.save_srt(subtitles, out_srt, bilingual=bilingual)
+        srt_core.save_smi(subtitles, out_smi, title=os.path.basename(base), bilingual=bilingual)
         srt_core.clear_progress(srt_path)
 
         # 완료된 번역 파일 저장
